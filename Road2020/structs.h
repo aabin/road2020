@@ -11,6 +11,8 @@
 #include <string>
 #include <opencv2/highgui/highgui.hpp>
 #include <iostream>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
 
 using std::vector;
 using std::string;
@@ -43,6 +45,14 @@ struct Point3DI{
         z = dz;
         inten = dinten;
     }
+
+	Point3DI(pcl::PointXYZ a)
+	{
+		x = a.x;
+		y = a.y;
+		z = a.z;
+		inten = 0;
+	}
 };
 
 //grid: project point cloud to horizontal grids

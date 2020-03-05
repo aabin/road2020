@@ -147,10 +147,12 @@ void Markings::extractMarkingPointsDBSCAN(const vector<Point3DI> &saliency, cons
 	}
 }
 
-void Markings::extractMarkingPointsEUDistance(const vector<Point3DI> &saliency, const double &threshold, vector<Point3DI> &markint_p, vector<Point3DI> &cluster)
+vector<PointCloud<PointXYZ> > Markings::extractMarkingPointsEUDistance(const vector<Point3DI> &saliency, const double &threshold, vector<Point3DI> &markint_p, vector<Point3DI> &cluster)
 {
 	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
+	vector<PointCloud<PointXYZ> > clusters_pcl;
 
+	//提取标线点
 	for (int i = 0; i < saliency.size(); i++)
 	{
 		if (saliency[i].inten > threshold)
@@ -169,14 +171,15 @@ void Markings::extractMarkingPointsEUDistance(const vector<Point3DI> &saliency, 
 	cloud->height = 1;
 	cloud->points.resize(cloud->width * cloud->height);
 
+	// 欧式距离聚类
 	// Creating the KdTree object for the search method of the extraction
 	pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>);
 	tree->setInputCloud(cloud);
 
 	std::vector<pcl::PointIndices> cluster_indices;
 	pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
-	ec.setClusterTolerance(1.5); 
-	ec.setMinClusterSize(6);
+	ec.setClusterTolerance(1.5); // 欧式距离聚类间隔阈值1.5m
+	ec.setMinClusterSize(3);     // 最少三个点
 	ec.setMaxClusterSize(25000);
 	ec.setSearchMethod(tree);
 	ec.setInputCloud(cloud);
@@ -185,7 +188,7 @@ void Markings::extractMarkingPointsEUDistance(const vector<Point3DI> &saliency, 
 	srand((int)time(0));
 	for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
 	{
-		pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_cluster(new pcl::PointCloud<pcl::PointXYZ>);
+		pcl::PointCloud<pcl::PointXYZ> cluster_pcl;
 		int t = rand() % 99 + 1;
 		for (std::vector<int>::const_iterator pit = it->indices.begin(); pit != it->indices.end(); ++pit)
 		{
@@ -195,10 +198,91 @@ void Markings::extractMarkingPointsEUDistance(const vector<Point3DI> &saliency, 
 			cpt.z = cloud->points[*pit].z;
 			cpt.inten = t;
 			cluster.push_back(cpt);
+
+			cluster_pcl.points.push_back(cloud->points[*pit]);
+		}
+		cluster_pcl.width = cluster_pcl.points.size();
+		cluster_pcl.height = 1;
+		cluster_pcl.points.resize(cluster_pcl.width * cluster_pcl.height);
+
+		clusters_pcl.push_back(cluster_pcl);
+	}
+	return clusters_pcl;
+}
+
+void Markings::filterOutliersByRansac(vector<PointCloud<PointXYZ> > &clusters, vector<Point3DI> &Poutliers, vector<Point3DI> &Pinliers)
+{
+	srand((int)time(0));
+	for (size_t cnt = 0; cnt < clusters.size(); ++cnt)
+	{
+		PointCloud<PointXYZ>::Ptr cluster = clusters.at(cnt).makeShared(); // 一个cluster内的标线点
+
+		pcl::SACSegmentation<pcl::PointXYZ> seg;
+		pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+		pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+		pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_line(new pcl::PointCloud<pcl::PointXYZ>());
+		pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_f(new pcl::PointCloud<pcl::PointXYZ>());
+
+		seg.setOptimizeCoefficients(true);
+		seg.setModelType(pcl::SACMODEL_LINE);
+		seg.setMethodType(pcl::SAC_RANSAC);
+		seg.setMaxIterations(100);
+		seg.setDistanceThreshold(0.2);
+
+		int nr_points = (int)cluster->points.size();
+		while (cluster->points.size() > 4)
+		{
+			// Segment the largest planar component from the remaining cloud
+			seg.setInputCloud(cluster);
+			seg.segment(*inliers, *coefficients);
+			if (inliers->indices.size() == 0)
+			{
+				std::cout << "Could not estimate a planar model for the given dataset." << std::endl;
+				break; // 如果剩下的点中没有一个直线,则剩下的点都是outliers
+			}
+
+			// Extract the planar inliers from the input cloud
+			pcl::ExtractIndices<pcl::PointXYZ> extract;
+			extract.setInputCloud(cluster);
+			extract.setIndices(inliers);
+			extract.setNegative(false);
+
+			// Get the points associated with the planar surface
+			extract.filter(*cloud_line);
+			vector<Point3DI > line = copyPC(*cloud_line);
+			int t = rand() % 99 + 1;
+			for (int i = 0; i < line.size(); i++)
+			{
+				line[i].inten = t;
+				Pinliers.push_back(line[i]);
+			}
+
+			// Remove the planar inliers, extract the rest
+			extract.setNegative(true);
+			extract.filter(*cloud_f);
+			*cluster = *cloud_f;
+		}
+
+		if (cluster->points.size() > 0)
+		{
+			for (int i = 0; i < cluster->points.size(); ++i)
+			{
+				Point3DI otl(cluster->points.at(i));
+				Poutliers.push_back(otl);
+			}
 		}
 	}
 }
 
+vector<Point3DI> Markings::copyPC(PointCloud<PointXYZ> &pc)
+{
+	vector<Point3DI> rst;
+	for (int i = 0; i < pc.points.size(); i++)
+	{
+		rst.push_back(Point3DI(pc.points.at(i)));
+	}
+	return rst;
+}
 
 DBCAN::DBCAN(double eps, int minPts, vector<Point> points) 
 {
