@@ -16,7 +16,7 @@ int main()
 	//const string road_cloud_path = "E:\\BaiduNetdiskDownload\\hwsegment\\curve_road.las";
 	//const string edge_cloud_path = "E:\\BaiduNetdiskDownload\\hwsegment\\curve_edge.las";
 
-	const string test_file_path = "cross2_ground.las";
+	const string test_file_path = "D:/2020exp/cross1_ground.las";
 	const string road_cloud_path = "road.las";
 	const string edge_cloud_path = "edge.las";
 
@@ -29,7 +29,7 @@ int main()
     if (type == 0)
     {
         grid_size = 1.5;
-        planar_threshold = 0.004;
+        planar_threshold = 0.006;
         angle_threshold = 10;
         height_threshold = 0.05;
         refine_distance_threshold = 0.035;
@@ -44,6 +44,17 @@ int main()
         refine_distance_threshold = 0.025;
         alpha_shape = 5;
     }
+
+	cout << "planar_threshold(4-6mm): " << endl;
+	cin >> angle_threshold;
+	planar_threshold;
+
+	cout << "angle_threshold(5-20degree): " << endl;
+	cin >> angle_threshold;
+
+	cout << "height_threshold(1-10cm): " << endl;
+	cin >> height_threshold;
+	height_threshold /= 100;
 
     //medium files
     vector<Point3DI> local_point_repo, refined_cloud, edge;
@@ -97,7 +108,7 @@ int main()
         cout << "#input the largest region label:  ";
         std::cin >> largest_label;
     }
-    while(largest_label <= 0 || largest_label >= 6);
+    while(largest_label <= 0 || largest_label >= 10);
 
     segment.chooseRegions(regions, largest_label, alpha);
 
@@ -108,11 +119,27 @@ int main()
     lasio.writeLasFile(road_cloud_path, refined_cloud, global_shift);
     lasio.writeLasFile(edge_cloud_path, edge, global_shift);
 
+	//Lasio lasio_m;
+	//vector<Point3DI> road_point;
+	//Point3D global_shift_m, local_minB_m, local_maxB_m;
+	//lasio_m.readLasFile("road.las", road_point, global_shift_m, local_minB_m, local_maxB_m);
+
 	Markings markings;
 	vector<Point3DI> sali = markings.ccltSaliencyPoint(refined_cloud);
 	lasio.writeLasFile("sali.las", sali, global_shift);
 
-    cout << timer.timeSpent() << endl;
+	vector<Point3DI> mrk, cluster;
+	// ≈∑ Ωæ€¿‡
+	vector<PointCloud<PointXYZ> > clusters_pcl = markings.extractMarkingPointsEUDistance(sali, 500, mrk, cluster);
+	lasio.writeLasFile("marking.las", mrk, global_shift);
+	lasio.writeLasFile("cluster.las", cluster, global_shift);
+	vector<Point3DI> inl, otl;
+	// ransac…∏—°inliers
+	markings.filterOutliersByRansac(clusters_pcl, otl, inl);
+	lasio.writeLasFile("outliers.las", otl, global_shift);
+	lasio.writeLasFile("inliers.las", inl, global_shift);
 
+    cout << timer.timeSpent() << endl;
+	system("pause");
     return 0;
 }

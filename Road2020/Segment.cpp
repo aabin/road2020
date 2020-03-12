@@ -300,7 +300,7 @@ void Segment::adjustRegions(vector<vector<uint> > &regions, const vector<vector<
     transform[0] = 0;
     for (int i = 1; i < sizes.size(); ++i) {
         transform[sizes.at(i).row_pos] = i;
-        if (i > 5)
+        if (i > 10)
             transform[sizes.at(i).row_pos] = 0;
     }
 
